@@ -8,5 +8,5 @@ RUN apt-get update -y && \
   rm -rf /tmp/* && \
   rm -rf /var/lib/apt/lists/*
 COPY ./default.conf /etc/nginx/conf.d/default.conf
-COPY ./index.html /usr/share/nginx/html/index.html
+COPY ./index.html /usr/share/nginx/html/cats/index.html
 CMD nginx -g "daemon off;"
