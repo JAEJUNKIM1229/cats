@@ -1,0 +1,93 @@
+# This workflow will build and push a new container image to Amazon ECR,
+# and then will deploy a new task definition to Amazon ECS, when there is a push to the "main" branch.
+
+name: Deploy to Amazon ECS
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ap-northeast-2                   # set this to your preferred AWS region, e.g. us-west-1
+  ECR_REPOSITORY: ${{ github.event.repository.name }}           # set this to your Amazon ECR repository name
+  ECS_SERVICE: ${{vars.ECS_SERVICE}}                 # set this to your Amazon ECS service name
+  ECS_CLUSTER: ${{vars.ECS_CLUSTER}}                 # set this to your Amazon ECS cluster name
+  # ECS_TASK_DEFINITION: MY_ECS_TASK_DEFINITION # set this to the path to your Amazon ECS task definition
+  #                                              # file, e.g. .aws/task-definition.json
+  ECS_TASK_DEFINITION: ${{vars.ECS_TASK_DEFINITION}}
+  CONTAINER_NAME: ${{ github.event.repository.name }}           # set this to the name of the container in the
+  #                                              # containerDefinitions section of your task definition
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deployment:
+    name: Build and Push to Amazon ECR
+    runs-on : ubuntu-latest
+    environment: development  # ✅ GitHub 환경 지정 (시크릿 접근용)
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }} 
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build, tag, and push docker image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: latest  #${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG        
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+    # - name: Get current task definition
+    #   run: |
+    #     aws ecs describe-task-definition \
+    #       --task-definition $ECS_TASK_DEFINITION \
+    #       --query 'taskDefinition' > task-definition.json
+
+    - name: Get current Task Definition ARN
+      id: get-task-def-arn
+      run: |
+        TASK_DEF_ARN=$(aws ecs describe-services \
+          --cluster $ECS_CLUSTER \
+          --services $ECS_SERVICE \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        echo "TASK_DEF_ARN=$TASK_DEF_ARN" >> $GITHUB_ENV
+        
+    - name: Fill in the new image ID in the Amazon ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        # task-definition: task-definition.json
+        task-definition-arn: ${{env.TASK_DEF_ARN}}
+        container-name: ${{ env.CONTAINER_NAME }}
+        image: ${{ steps.build-image.outputs.image }}
+        
+    - name: Deploy to Amazon ECS service
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{env.ECS_SERVICE}}
+        cluster: ${{env.ECS_CLUSTER}}
+        # force-new-deployment: true
+        wait-for-service-stability: true
+        wait-for-minutes: 5 # default: 30 min
+        
+
+    
+
+  
