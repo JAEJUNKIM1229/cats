@@ -83,8 +83,9 @@ jobs:
         task-definition: ${{ steps.task-def.outputs.task-definition }}
         service: ${{env.ECS_SERVICE}}
         cluster: ${{env.ECS_CLUSTER}}
-        force-new-deployment: true
-        # wait-for-service-stability: true
+        # force-new-deployment: true
+        wait-for-service-stability: true
+        wait-for-minutes: 5 # default: 30 min
         
 
     
